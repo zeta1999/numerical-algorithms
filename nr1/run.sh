@@ -3,15 +3,24 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LEAN_DIR="$SCRIPT_DIR/lean"
-
-cd "$LEAN_DIR"
+FSTAR_DIR="$SCRIPT_DIR/fstar"
 
 echo "========================================"
 echo " LU Decomposition - Build & Test Suite"
 echo "========================================"
+
+# ========================================
+# LEAN4
+# ========================================
 echo ""
+echo "----------------------------------------"
+echo " Lean4 Implementation"
+echo "----------------------------------------"
+
+cd "$LEAN_DIR"
 
 # Step 1: Fetch dependencies (if needed)
+echo ""
 echo "[1/5] Fetching dependencies..."
 if [ ! -d ".lake/packages/mathlib" ]; then
     lake update
@@ -46,6 +55,35 @@ lake build sensitivity
 lake exe sensitivity
 echo ""
 
+echo "  ✓ Lean4 — all steps completed"
+
+# ========================================
+# F*
+# ========================================
+echo ""
+echo "----------------------------------------"
+echo " F* Implementation"
+echo "----------------------------------------"
+
+cd "$FSTAR_DIR"
+
+if command -v fstar.exe &> /dev/null; then
+    echo ""
+    echo "[1/1] Verifying F* modules..."
+    make verify
+    echo "  ✓ F* — all modules verified"
+else
+    echo ""
+    echo "  ⚠ fstar.exe not found — skipping F* verification"
+    echo "  To install: opam install fstar"
+    echo ""
+    echo "  F* source files present:"
+    for f in src/*.fst; do
+        echo "    - $f"
+    done
+fi
+
+echo ""
 echo "========================================"
 echo " All steps completed successfully"
 echo "========================================"
