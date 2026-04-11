@@ -1,0 +1,61 @@
+Short answer: Not directly to Rust/C++ from your current code. Here's why and what's close.                                       
+                                                                                                                                    
+  F* code (nr1/fstar/)                                                                                                              
+                                                                                                                                    
+  Your F* uses pure functional style with FStar.Seq and arbitrary-precision int. The extraction landscape:                          
+                                                                                                                                    
+  ┌─────────────────┬────────────┬────────────────┬────────────────────────────────────────────────────────────────────────────┐    
+  │      Tool       │   Target   │ Works on your  │                               Why / why not                                │ 
+  │                 │            │     code?      │                                                                            │    
+  ├─────────────────┼────────────┼────────────────┼────────────────────────────────────────────────────────────────────────────┤    
+  │ KaRaMeL         │ C          │       No       │ Requires Low* (buffers, machine integers, stack/heap effects). Your code   │    
+  │                 │            │                │ is pure functional with Seq.                                               │    
+  ├─────────────────┼────────────┼────────────────┼────────────────────────────────────────────────────────────────────────────┤    
+  │ Eurydice        │ C (from    │       No       │ Goes Rust→C, not F*→Rust.                                                  │    
+  │                 │ Rust)      │                │                                                                            │    
+  ├─────────────────┼────────────┼────────────────┼────────────────────────────────────────────────────────────────────────────┤
+  │ Pulse           │ Rust, C    │       No       │ Requires rewriting in the Pulse DSL with separation-logic annotations.     │    
+  │ extraction      │            │                │                                                                            │    
+  ├─────────────────┼────────────┼────────────────┼────────────────────────────────────────────────────────────────────────────┤
+  │ F* --codegen    │ OCaml      │      Yes       │ Built-in, works today on pure F* with Seq. But gives OCaml, not Rust/C++.  │    
+  │ OCaml           │            │                │                                                                            │    
+  └─────────────────┴────────────┴────────────────┴────────────────────────────────────────────────────────────────────────────┘
+                                                                                                                                    
+  Lean4 code (nr1/lean/)
+
+  Your Lean4 has two paths: exact ℚ via Mathlib and Float via Array. The landscape:                                                 
+  
+  ┌───────────────────┬──────────────┬────────────────┬───────────────────────────────────────────────────────────────────────┐     
+  │       Tool        │    Target    │ Works on your  │                             Why / why not                             │ 
+  │                   │              │     code?      │                                                                       │ 
+  ├───────────────────┼──────────────┼────────────────┼───────────────────────────────────────────────────────────────────────┤ 
+  │ Lean4 C backend   │ C            │  Technically   │ But the generated C is deeply coupled to lean_object*, reference      │ 
+  │ (built-in)        │              │      yes       │ counting, Lean runtime. Not idiomatic numerical C.                    │     
+  ├───────────────────┼──────────────┼────────────────┼───────────────────────────────────────────────────────────────────────┤ 
+  │ @[export]         │ Clean C      │   Partially    │ Only for functions with primitive types (Float, UInt64). Your FloatLU │     
+  │ annotation        │              │                │  code uses Array (Array Float) → still gets lean_object*.             │     
+  ├───────────────────┼──────────────┼────────────────┼───────────────────────────────────────────────────────────────────────┤ 
+  │ Peregrine         │ C, Rust,     │    Not yet     │ Research-stage project (INRIA/Aarhus). Most promising general         │     
+  │                   │ OCaml, Wasm  │                │ extraction framework for Lean, but not production-ready.              │     
+  ├───────────────────┼──────────────┼────────────────┼───────────────────────────────────────────────────────────────────────┤
+  │ Lean4→Rust        │ Rust         │       No       │ Doesn't exist. Only experimental bytecode VMs and FFI bindings.       │     
+  │ transpiler        │              │                │                                                                       │     
+  └───────────────────┴──────────────┴────────────────┴───────────────────────────────────────────────────────────────────────┘
+                                                                                                                                    
+  What would it take?
+
+  To get clean Rust or C from verified code algorithmically, you'd need to either:                                                  
+  
+  1. Rewrite the F* code in Low* or Pulse — then KaRaMeL gives you C, Pulse gives you Rust. This is the HACL* approach (used by     
+  Firefox, Linux kernel). Significant effort: replace Seq with LowStar.Buffer, int with UInt64, add stack/heap annotations.
+  2. Extract F* → OCaml today (--codegen OCaml), then accept OCaml as output rather than Rust/C++. Works with zero changes to your  
+  code.                                                                                                                             
+  3. Wait for Peregrine to mature — it aims to extract from Lean (and others) to runtime-free C/Rust/Wasm. Active research but not
+  usable today for general code.                                                                                                    
+  4. Write Rust/C separately, verify equivalence — the pragmatic approach used by AWS and others: write production code in Rust,
+  model in Lean4, use Aeneas or differential testing to confirm they match.                                                         
+                  
+  Bottom line                                                                                                                       
+                  
+  For your exact codebase, F* → OCaml extraction is the only tool that works today out of the box. For Rust/C++ specifically, no    
+  existing algorithmic tool handles either your pure-F* or your Mathlib-Lean4 code without a substantial rewrite of the source.
