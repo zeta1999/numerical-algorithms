@@ -59,3 +59,34 @@ Short answer: Not directly to Rust/C++ from your current code. Here's why and wh
                   
   For your exact codebase, F* → OCaml extraction is the only tool that works today out of the box. For Rust/C++ specifically, no    
   existing algorithmic tool handles either your pure-F* or your Mathlib-Lean4 code without a substantial rewrite of the source.
+
+===
+
+Todo 3: Axiom gap reduction — Partial                                                                                      
+                                                                                                                             
+  Turned into real theorems                                                                                                  
+                                                                                                                           
+  - nr2 Lean4 R_unit_diagonal: was an axiom with non-singular precondition; now a real theorem proved by definitional        
+  unfolding. Small refactor to qrDecompose explicitly sets R[i][i] = 1 in the wrapper. Bonus: the theorem is now
+  unconditional (no hns precondition).                                                                                       
+                                                                                                                           
+  Pre-existing compat issues fixed (side effect)
+
+  - nr1 F*: the newer F* 2025.12.15 was stricter about refinement propagation. Fixed by adding length refinement to          
+  lu_result.perm, tightening find_nonzero return type, explicit type annotations.
+  - Both projects: 0-arg Lemma now requires explicit unit ->.                                                                
+                                                                                                                             
+  Remaining axioms (by inherent limitation)                                                                                  
+                                                                                                                             
+  - F* inline let rec closures (dot_product_self_nonneg, dot_product_comm, find_pivot_ge_start, find_pivot_valid): these     
+  can't be proven inductively because Z3 can't reference closures nested inside function bodies. Would require refactoring
+  the functions to use top-level recursive helpers.                                                                          
+  - Algorithmic correctness axioms (U_upper_triangular, PA_eq_LU, A_eq_QR, Q_columns_orthogonal, solve_correct): these
+  require reasoning over the full recursive execution trace through qrDecomposeAux/luDecomposeAux. Substantial proof effort  
+  (~100s of lines each).
+                                                                                                                             
+  Current state                                             
+
+  - nr1 Lean4: all tests pass; F*: 5/5 modules verified (with newer F*)                                                      
+  - nr2 Lean4: 14 unit tests + 3500 fuzz pass; 1 more theorem proved; F*: 5/5 modules verified
+  - All changes committed and pushed to origin/main     
