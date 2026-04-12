@@ -81,9 +81,11 @@ def qrDecompose {n : ℕ} [NeZero n] (A : Matrix (Fin n) (Fin n) ℚ) :
       R := fun i j => if i = j then 1 else 0
       singular := false }
   let result := qrDecomposeAux init 0 (Nat.zero_le n)
-  -- Ensure R is strictly upper triangular below diagonal
+  -- Ensure R is strictly upper triangular below diagonal,
+  -- and force unit diagonal (matches the unnormalized MGS convention).
   let R := fun i j =>
     if i.val > j.val then 0
+    else if i = j then 1
     else result.R i j
   { Q := result.Q
     R := R

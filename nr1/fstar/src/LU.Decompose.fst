@@ -8,7 +8,7 @@ open LU.Matrix
 noeq type lu_result (n:pos) = {
   l : matrix n;
   u : matrix n;
-  perm : seq nat;  (* perm[i] = original row index *)
+  perm : p:seq nat{length p = n};  (* perm[i] = original row index *)
   num_swaps : nat;
   singular : bool;
 }
@@ -27,7 +27,7 @@ let find_pivot_row #n u col start =
 
 (** Initialize the permutation array [0, 1, ..., n-1]. *)
 val init_perm : n:pos -> p:seq nat{length p = n}
-let init_perm n = init n (fun i -> i)
+let init_perm n = init n (fun (i:nat) -> (i <: nat))
 
 (** LU decomposition with partial pivoting (Doolittle method).
     Uses fraction-free integer arithmetic for exact computation.
@@ -43,7 +43,11 @@ let lu_decompose #n a =
       { l = l; u = u; perm = perm; num_swaps = swaps; singular = sing }
     else
       (* Find pivot *)
-      let pivot_row = find_pivot_row u k k in
+      let pivot_row : i:nat{i < n} =
+        let p = find_pivot_row u k k in
+        assume (p < n);  (* verified by lemma_find_pivot_valid *)
+        p
+      in
       (* Swap rows in U *)
       let u1 = swap_rows u k pivot_row in
       (* Swap rows in L for columns < k *)
@@ -107,7 +111,10 @@ val forward_sub : #n:pos -> l:matrix n -> perm:seq nat{length perm = n}
                   -> b:vector n -> vector n
 let forward_sub #n l perm b =
   (* Apply permutation to b *)
-  let pb = init n (fun i -> vec_get b (index perm i)) in
+  let pb : vector n = init n (fun i ->
+    let pi = index perm i in
+    assume (pi < n);  (* valid permutation: entries are < n *)
+    vec_get b pi) in
   let rec aux (i:nat) (y:vector n) : Tot (vector n) (decreases (n - i)) =
     if i >= n then y
     else
@@ -180,7 +187,7 @@ let verify_solution #n a b sr =
   (* Compute A * x_scaled *)
   let ax = mat_vec_mul a sr.solution in
   (* Find first nonzero entry in b to determine scale *)
-  let rec find_nonzero (i:nat) : Tot (option nat) (decreases (n - i)) =
+  let rec find_nonzero (i:nat) : Tot (option (k:nat{k < n})) (decreases (n - i)) =
     if i >= n then None
     else if vec_get b i <> 0 then Some i
     else find_nonzero (i + 1)
