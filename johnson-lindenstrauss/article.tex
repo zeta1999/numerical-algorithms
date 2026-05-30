@@ -1,0 +1,266 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black,citecolor=blue!50!black}
+
+% ---- Lean code listing style -------------------------------------------------
+\definecolor{leankw}{rgb}{0.50,0.10,0.45}
+\definecolor{leancm}{rgb}{0.30,0.45,0.30}
+\lstdefinestyle{lean}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{leankw}\bfseries,
+  commentstyle=\color{leancm}\itshape,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  showstringspaces=false,
+  morekeywords={theorem,lemma,def,noncomputable,by,rw,simp,simp_rw,have,exact,intro,
+    refine,calc,apply,set,congr,ring,field_simp,linarith,nlinarith,gcongr,fun,let,
+    Measure,map,open,namespace,instance},
+  morecomment=[l]{--},
+  morecomment=[s]{/-}{-/},
+}
+\lstset{style=lean}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\norm}[1]{\lVert #1 \rVert}
+\DeclareMathOperator{\mgf}{mgf}
+
+\title{\textbf{A Machine-Checked Proof of the\\ Johnson--Lindenstrauss Lemma in Lean~4}}
+\author{Formalized over mathlib}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a complete formalization, in the Lean~4 proof assistant on top of
+\texttt{mathlib}, of the Johnson--Lindenstrauss (JL) lemma: a random Gaussian projection
+of $n$ points from $\R^d$ into $\R^m$ with $m = O(\log n / \eps^2)$ dimensions preserves
+all pairwise squared distances to within a factor $(1\pm\eps)$, with high probability and
+\emph{independently of the ambient dimension $d$}. The development compiles end to end
+with no \texttt{sorry} and depends only on the three standard foundational axioms. We
+describe the mathematical argument, its decomposition into seven independently verified
+modules, and the principal Lean techniques used at each step.
+\end{abstract}
+
+\section{What we prove, and the plan}
+
+\paragraph{The statement.} Fix $0<\eps<1$ and $n$ distinct points $x_1,\dots,x_n\in\R^d$.
+Let $A$ be an $m\times d$ random matrix with i.i.d.\ $N(0,1/m)$ entries. The
+Johnson--Lindenstrauss lemma asserts that, provided $m \gtrsim \log n / \eps^2$,
+\[
+  (1-\eps)\,\norm{x_i-x_j}^2 \;\le\; \norm{A x_i - A x_j}^2 \;\le\; (1+\eps)\,\norm{x_i-x_j}^2
+  \qquad\text{for all } i\ne j,
+\]
+simultaneously, except with probability at most $\delta$. Concretely, the failure
+probability is at most $\delta$ as soon as $2n^2\exp(-m\eps^2/12)\le\delta$, i.e.
+$m\ge 12\,(\log(2n^2)+\log(1/\delta))/\eps^2$.
+
+\paragraph{The strategy.} We follow the elementary proof of Dasgupta and
+Gupta~\cite{dasgupta}. Because $A$ is Gaussian, for a \emph{fixed} vector $v$ the image
+$Av$ is itself Gaussian, $Av\sim N(0,(\norm{v}^2/m)I_m)$, so $\norm{Av}^2$ is a scaled
+chi-squared variable. Concentration of the chi-squared distribution (via its moment
+generating function and the Chernoff bound) controls the distortion of a single vector;
+a union bound over the $\binom n2$ difference vectors $x_i-x_j$ finishes the proof. The
+argument splits into seven steps, realized as seven Lean modules
+(Table~\ref{tab:modules}).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\hline
+\textbf{Module} & \textbf{Result}\\
+\hline
+\texttt{LogBounds}   & \S\ref{sec:log} elementary $\log$ inequalities\\
+\texttt{GaussianMGF} & \S\ref{sec:gmgf} $\E[e^{tZ^2}]=(1-2t)^{-1/2}$, $Z\sim N(0,1)$\\
+\texttt{Basic}, \texttt{ChiSq} & \S\ref{sec:chisq} the law $\chi^2_m$ and its MGF $(1-2t)^{-m/2}$\\
+\texttt{TailBounds}  & \S\ref{sec:tails} Chernoff tail bounds for $\chi^2_m$\\
+\texttt{Projection}  & \S\ref{sec:proj} single-vector concentration\\
+\texttt{UnionBound}  & \S\ref{sec:union} union bound $\Rightarrow$ JL\\
+\hline
+\end{tabular}
+\caption{The seven modules and their results.}
+\label{tab:modules}
+\end{table}
+
+\paragraph{The formal theorem.} The random projection is modelled by its $m$ independent
+standard-Gaussian \emph{rows} $G=(G_1,\dots,G_m)$, $G_k\in\R^d$; the projected squared
+norm of $v$ is $(1/m)\sum_k\langle v,G_k\rangle^2=\norm{Av}^2$ for $A=G/\sqrt m$. The law
+of $G$ is \texttt{rowLaw m d}, and $\mu.\mathtt{real}\,S=(\mu S).\mathtt{toReal}$.
+
+\begin{lstlisting}
+theorem johnsonLindenstrauss (n d : N) (m : N) (m_pos : 0 < m)
+    (x : Fin n -> EuclideanSpace R (Fin d)) (hx : Function.Injective x)
+    (eps delta : R) (he_pos : 0 < eps) (he_lt : eps < 1) (hd_pos : 0 < delta)
+    (hsuff : 2 * (n:R)^2 * rexp (-(m:R) * eps^2 / 12) <= delta) :
+    (rowLaw m d).real
+      {G | exists i j, i != j /\
+        ((1+eps) * ||x i - x j||^2 <= (1/(m:R)) * sum k, <x i - x j, G k>^2
+         \/ (1/(m:R)) * sum k, <x i - x j, G k>^2 <= (1-eps) * ||x i - x j||^2)}
+      <= delta
+\end{lstlisting}
+
+\section{Logarithm bounds}\label{sec:log}
+
+The Chernoff exponents are $\eps-\log(1+\eps)$ and $-(\eps+\log(1-\eps))$. Integrating the
+pointwise inequality $\tfrac1{1+x}\le 1-x+x^2$ over $[0,\eps]$,
+\[
+  \eps-\log(1+\eps) \;=\; \int_0^\eps\!\Big(1-\tfrac1{1+x}\Big)\,dx
+  \;\ge\; \int_0^\eps (x-x^2)\,dx \;=\; \tfrac{\eps^2}2-\tfrac{\eps^3}3,
+\]
+and symmetrically $\eps+\log(1-\eps)\le-\eps^2/2$. For $0<\eps<1$ both simplify to the
+clean form used downstream:
+\[
+  \eps-\log(1+\eps)\ \ge\ \tfrac{\eps^2}{6},\qquad
+  \eps+\log(1-\eps)\ \le\ -\tfrac{\eps^2}{6}.
+\]
+
+\begin{remark}
+The frequently quoted bound $\eps-\log(1+\eps)\ge\eps^2/3$ is \emph{false} near $\eps=1$
+(at $\eps=1$ the left side is $1-\log2\approx0.307<1/3$). The sharp constant of this form
+valid on all of $(0,1)$ is $\eps^2/6$, since
+$\tfrac{\eps^2}2-\tfrac{\eps^3}3\ge\tfrac{\eps^2}6\iff 2\eps^2(1-\eps)\ge0$. We use
+$\eps^2/6$ throughout; this is one place where formalization corrected a folklore
+constant.
+\end{remark}
+
+In Lean the comparison is an interval-integral inequality. The antiderivative
+$\int_0^\eps\tfrac1{1+x}=\log(1+\eps)$ comes from a substitution
+(\texttt{integral\_comp\_add\_left}) and \texttt{integral\_one\_div}; the comparison is
+\texttt{intervalIntegral.integral\_mono\_on}, with integrability discharged by
+\texttt{Continuous.intervalIntegrable} and the pointwise step by \texttt{nlinarith}.
+
+\section{The MGF of a squared standard normal}\label{sec:gmgf}
+
+For $Z\sim N(0,1)$ and $t<1/2$, completing the square inside the Gaussian integral,
+\[
+  \E[e^{tZ^2}] = (2\pi)^{-1/2}\!\int e^{tx^2}e^{-x^2/2}\,dx
+  = (2\pi)^{-1/2}\!\int e^{-(\frac12-t)x^2}\,dx
+  = (2\pi)^{-1/2}\sqrt{\tfrac{\pi}{\frac12-t}} = (1-2t)^{-1/2}.
+\]
+The Lean proof passes to the density via \texttt{integral\_gaussianReal\_eq\_integral\_smul},
+applies mathlib's Gaussian integral \texttt{integral\_gaussian}
+($\int e^{-bx^2}=\sqrt{\pi/b}$), and discharges the radical identity by normalizing both
+sides to $\sqrt{(1-2t)^{-1}}$ (\texttt{Real.sqrt\_inv}, \texttt{Real.sqrt\_mul},
+\texttt{field\_simp}, \texttt{Real.sqrt\_eq\_rpow}).
+
+\section{The chi-squared distribution and its MGF}\label{sec:chisq}
+
+The chi-squared law with $m$ degrees of freedom is the pushforward of the standard
+Gaussian on $\R^m$ under $x\mapsto\norm x^2$:
+\begin{lstlisting}
+noncomputable def chiSq (m : N) : Measure R :=
+  (stdGaussian (EuclideanSpace R (Fin m))).map (fun x => ||x||^2)
+\end{lstlisting}
+Writing the standard Gaussian on $\R^m$ as the pushforward of $\bigotimes N(0,1)$ makes
+$\norm g^2=\sum_i g_i^2$, so the MGF \emph{factorizes}:
+\[
+  \E[e^{t\norm g^2}] = \prod_{i=1}^m \E[e^{tg_i^2}] = \big((1-2t)^{-1/2}\big)^m
+  = (1-2t)^{-m/2}.
+\]
+The key mathlib ingredient is \texttt{integral\_fintype\_prod\_eq\_prod}, the
+product-measure factorization $\int\prod_i f_i(x_i)\,d(\bigotimes\mu)=\prod_i\int f_i$;
+the $m$-fold product is collapsed with \texttt{rpow\_natCast} and \texttt{rpow\_mul}.
+
+\begin{lemma}[\texttt{chiSq\_mgf}]
+For $t<1/2$, $\ \mgf\,\mathrm{id}\,(\chi^2_m)\,t = (1-2t)^{-m/2}$.
+\end{lemma}
+
+\section{Chernoff tail bounds}\label{sec:tails}
+
+Applying the Chernoff method to \texttt{chiSq\_mgf} and optimizing $t$
+($t=\eps/(2(1+\eps))$ for the upper tail, $t=-\eps/(2(1-\eps))$ for the lower),
+\[
+  \Prob(\chi^2_m\ge(1+\eps)m)\le e^{-\frac m2(\eps-\log(1+\eps))}\le e^{-m\eps^2/12},
+  \quad
+  \Prob(\chi^2_m\le(1-\eps)m)\le e^{\frac m2(\eps+\log(1-\eps))}\le e^{-m\eps^2/12}.
+\]
+The Lean tail bounds invoke \texttt{measure\_ge\_le\_exp\_mul\_mgf} and its lower
+counterpart; integrability of $e^{tX}$ is free, since the MGF is finite and nonzero so the
+integrand cannot be non-integrable (\texttt{integral\_undef}, contrapositive). The
+exponent identity reduces, after \texttt{Real.rpow\_def\_of\_pos}, to
+\texttt{field\_simp; ring}, and the simplification to $e^{-m\eps^2/12}$ chains through
+\S\ref{sec:log}.
+
+\section{Single-vector concentration}\label{sec:proj}
+
+For fixed $v\ne0$, $\norm{Av}^2\sim(\norm v^2/m)\chi^2_m$. We model this law as
+\texttt{projNormSq m v} $=(\chi^2_m).\mathtt{map}(z\mapsto(\norm v^2/m)z)$ and reduce each
+distortion event to a chi-squared tail by change of variables
+(\texttt{Measure.map\_apply}), obtaining
+\[
+  \Prob\big(\norm{Av}^2\notin[(1-\eps)\norm v^2,(1+\eps)\norm v^2]\big)\le 2e^{-m\eps^2/12}.
+\]
+The two-sided event is split with \texttt{measureReal\_union\_le} and the two
+\S\ref{sec:tails} bounds applied via \texttt{gcongr}.
+
+\section{The union bound and the JL lemma}\label{sec:union}
+
+Two ingredients complete the proof.
+
+\paragraph{The marginal law (the technical crux).} With $m$ i.i.d.\ standard-Gaussian
+rows, the projected norm of a fixed $v$ has law exactly \texttt{projNormSq m v}:
+\begin{lstlisting}
+lemma rowLaw_map_projSq (m d : N) (v : EuclideanSpace R (Fin d)) :
+    (rowLaw m d).map (fun G => (1/(m:R)) * sum i, <v, G i>^2) = projNormSq m v
+\end{lstlisting}
+This is established by a chain of pushforwards: each coordinate
+$\langle v,G_k\rangle\sim N(0,\norm v^2)$ via
+\texttt{IsGaussian.map\_eq\_gaussianReal} (mean $0$, variance $\norm v^2$ from
+\texttt{variance\_dual\_stdGaussian} and \texttt{innerSL\_apply\_norm}); these lift
+coordinatewise through \texttt{Measure.pi\_map\_pi}; a rescaling
+(\texttt{gaussianReal\_map\_const\_mul}) and the identity $\sum(\norm v\,y_i)^2=\norm
+v^2\sum y_i^2$ collapse the result onto \texttt{chiSq}, reusing
+\texttt{map\_pi\_eq\_stdGaussian}.
+
+\paragraph{The union bound.} The bad event is contained in the union, over the $\le n^2$
+distinct pairs, of the per-pair distortion events. By sub-additivity
+(\texttt{measureReal\_biUnion\_finset\_le}) and the per-pair bound (\S\ref{sec:proj} via
+the marginal),
+\[
+  \Prob(\text{bad}) \le \sum_{i\ne j} 2e^{-m\eps^2/12} \le n^2\cdot2e^{-m\eps^2/12}
+  = 2n^2 e^{-m\eps^2/12} \le \delta.
+\]
+Injectivity of the points gives $x_i-x_j\ne0$ (\texttt{sub\_ne\_zero}), as the per-pair
+bound requires. This yields the theorem of \S1.
+
+\section{Assessment}
+
+\paragraph{Trust.} \texttt{\#print axioms johnsonLindenstrauss} reports exactly
+\texttt{[propext, Classical.choice, Quot.sound]} --- the standard \texttt{mathlib}
+foundation, with no \texttt{sorryAx}. Every intermediate lemma, including the marginal,
+was checked the same way.
+
+\paragraph{The bound.} The explicit sufficient condition $2n^2e^{-m\eps^2/12}\le\delta$
+gives $m=O(\log n/\eps^2)$, independent of $d$ --- the entire point of the lemma. The
+constant $12$ is honest, tracing through the $\eps^2/6$ logarithm bound and the factor
+$1/2$ in the chi-squared exponent.
+
+\paragraph{Engineering.} The proof is seven small files ($\approx500$ lines), each
+compiled independently and mirroring one step of the argument. Small, named lemmas were
+preferred to monolithic tactic blocks at every turn: they are easier to state, to prove,
+to read, and to repair.
+
+\begin{thebibliography}{9}
+\bibitem{dasgupta} S.~Dasgupta and A.~Gupta. \emph{An elementary proof of a theorem of
+Johnson and Lindenstrauss}. Random Structures \& Algorithms 22(1):60--65, 2003.
+\bibitem{jl} W.~B.~Johnson and J.~Lindenstrauss. \emph{Extensions of Lipschitz mappings
+into a Hilbert space}. Contemp.\ Math.\ 26:189--206, 1984.
+\bibitem{mathlib} The mathlib Community. \emph{The Lean mathematical library}. CPP 2020.
+\end{thebibliography}
+
+\end{document}

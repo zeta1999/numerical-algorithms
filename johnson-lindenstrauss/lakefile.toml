@@ -1,0 +1,12 @@
+name = "JohnsonLindenstrauss"
+version = "0.1.0"
+defaultTargets = ["JL"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+version = "git#master"
+
+[[lean_lib]]
+name = "JL"
+globs = ["JL.+"]
