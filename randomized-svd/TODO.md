@@ -17,14 +17,30 @@
 randomized-svd/
 ├── Cargo.toml
 ├── ci.sh               — CI script (build + test)
+├── lakefile.toml        — Lean4 project config
+├── lean-toolchain       — Lean4 version (v4.29.0)
 ├── src/
 │   ├── lib.rs          — public API
 │   ├── svd.rs          — randomized SVD algorithm
 │   ├── matrix.rs       — QR decomposition (MGS + re-orthogonalization)
 │   ├── eigen.rs        — symmetric eigendecomposition (Jacobi)
 │   └── error.rs        — error metrics
-└── tests/
-    └── integration.rs  — correctness tests (9 tests, all passing)
+├── tests/
+│   └── integration.rs  — correctness tests (9 tests, all passing)
+└── lean/
+    ├── RandomizedSVD.lean          — main import file
+    ├── RandomizedSVD/
+    │   ├── Matrix.lean             — matrix operations, norms
+    │   ├── QR.lean                 — MGS QR + re-orthogonalization
+    │   ├── Eigen.lean              — Jacobi eigenvalue algorithm
+    │   ├── RandomizedSVD.lean      — main algorithm + low-rank approx
+    │   ├── LowRankApprox.lean      — rank-k reconstruction, Eckart-Young
+    │   └── AccuracyBounds.lean     — probabilistic error bounds
+    ├── Tests/
+    │   ├── Main.lean               — test suite
+    │   └── TestMatrix.lean         — test matrix generators
+    └── Fuzz/
+        └── Main.lean               — fuzz testing (TODO)
 ```
 
 ## Algorithm (Halko–Martinsson–Tropp 2011)
@@ -50,22 +66,39 @@ randomized-svd/
 - [x] Fix matrix dimension mismatches in QR and SVD
 - [x] All 9 integration tests passing (CI clean)
 
-### Phase 2: Experiments 📝
+### Phase 2: Lean4 Formalization 🔄 IN PROGRESS
+- [x] Project setup (lakefile.toml, lean-toolchain)
+- [x] Matrix operations (multiplication, transpose, norms)
+- [x] QR decomposition formalization (MGS + re-orthogonalization)
+- [x] Jacobi eigenvalue algorithm formalization
+- [x] Randomized SVD algorithm formalization
+- [x] Low-rank approximation formalization
+- [x] Accuracy bounds formalization
+- [x] Test suite skeleton
+- [ ] Proofs for Q orthogonality (replace axioms with proofs)
+- [ ] Proofs for decomposition correctness (A = QR)
+- [ ] Proofs for spectral theorem (A = V Λ V^T)
+- [ ] Proofs for randomized SVD error bounds
+- [ ] Proofs for Eckart-Young-Mirsky theorem
+- [ ] Fuzz testing framework
+
+### Phase 3: Experiments 📝
 - [ ] f32 vs f64 comparison
 - [ ] Power iterations benchmark
 - [ ] Oversampling study
 
-### Phase 3: Accuracy Improvements 📝
+### Phase 4: Accuracy Improvements 📝
 - [ ] Kahan summation experiments
 - [ ] Quadruple precision (2xf64 high-low representation)
 - [ ] Compare with standard SVD on ill-conditioned matrices
 
-### Phase 4: Advanced SVD 📝
+### Phase 5: Advanced SVD 📝
+- [ ] Research: PerSVD (Feng, Yu, Xie) — pass-efficient with shifted power iteration
 - [ ] Research: twisted factorization / Fernando's method
 - [ ] Implement high-accuracy bidiagonal SVD kernel
 - [ ] Replace inner SVD with high-accuracy variant
 
-### Phase 5: Polish 📝
+### Phase 6: Polish 📝
 - [ ] f32 API variant
 - [ ] Documentation / examples
 - [ ] Benchmarking
@@ -75,7 +108,8 @@ randomized-svd/
 
 | Phase | Status |
 |-------|--------|
-| Core | ✅ Complete (9 tests passing, CI clean) |
+| Core (Rust) | ✅ Complete (9 tests passing, CI clean) |
+| Lean4 Formalization | 🔄 Skeleton complete, all theorems as axioms |
 | Experiments | 📝 Planned |
 | Accuracy | 📝 Planned |
 | Advanced SVD | 📝 Planned |
@@ -87,9 +121,27 @@ randomized-svd/
 - **2026-05-30**: Replaced broken QR iteration eigenvalue solver with Jacobi eigenvalue algorithm.
 - **2026-05-30**: Fixed ndarray 0.15 compatibility (no `.abs()`, no `.linspace()`).
 
+## PerSVD (Feng, Yu, Xie) — Pass-efficient Randomized SVD
+
+**Paper:** "Pass-efficient randomized SVD with boosted accuracy"
+**Key innovations:**
+- Reduces passes in basic randomized SVD by half (3-4 vs 5+)
+- Uses **shifted power iteration**: (A - σI)Ω instead of AΩ
+- Dynamic shift scheme for improving accuracy
+- **3-4 orders of magnitude** error reduction
+
+**Planned implementation:** Phase 5, after core is stable.
+
 ## Running CI
 
 ```bash
 cd /home/pc/work/numerical-algorithms/randomized-svd
 ci.sh   # or: cargo build && cargo test
+```
+
+## Running Lean4
+
+```bash
+cd /home/pc/work/numerical-algorithms/randomized-svd/lean
+lake build
 ```

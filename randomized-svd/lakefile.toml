@@ -1,0 +1,35 @@
+name = "RandomizedSVD"
+version = "0.1.0"
+defaultTargets = ["RandomizedSVD"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+version = "git#master"
+
+[[lean_lib]]
+name = "RandomizedSVD"
+
+[[lean_lib]]
+name = "Tests"
+globs = ["Tests"]
+
+[[lean_lib]]
+name = "Fuzz"
+globs = ["Fuzz"]
+
+[[lean_lib]]
+name = "Analysis"
+globs = ["Analysis"]
+
+[[lean_exe]]
+name = "test"
+root = "Tests.Main"
+
+[[lean_exe]]
+name = "fuzz"
+root = "Fuzz.Main"
+
+[[lean_exe]]
+name = "analysis"
+root = "Analysis.Main"
