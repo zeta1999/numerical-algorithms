@@ -1,0 +1,35 @@
+https://github.com/rtk-ai/rtk
+cargo install --git https://github.com/rtk-ai/rtk
+=> rtk init -g 
+
+https://github.com/colbymchenry/codegraph
+npx @colbymchenry/codegraph
+cd your-project 
+codegraph init -i
+
+https://github.com/nvm-sh/nvm
+
+=> ollama launch claude --model qwen3.6:35b-a3b-bf16
+
+url = https://github.com/cameronfreer/lean4-skills
+
+       ```bash
+export LEAN4_PLUGIN_ROOT=/path/to/lean4-skills/plugins/lean4
+export LEAN4_SCRIPTS=$LEAN4_PLUGIN_ROOT/lib/scripts
+export LEAN4_REFS=$LEAN4_PLUGIN_ROOT/skills/lean4/references
+```
+
+## Claude Code (Native Plugin)
+
+```bash
+/plugin marketplace add cameronfreer/lean4-skills
+/plugin install lean4
+```
+~/work/lean4-skills/plugins
+
+codegraph init -i
+ollama launch claude --model qwen3.6:35b-a3b-bf16 -- --allow-dangerously-skip-permissions
+
+PATH="$HOME/.local/opt/lean4/bin:$PATH"
+
+~ but cannot do it all with local model ...
