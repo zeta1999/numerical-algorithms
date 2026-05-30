@@ -1,0 +1,23 @@
+
+build an randomized SVD algorithm from scratch in rust 
+prioritize correctness over performances for now
+
+ref: "Pass efficient randomized SVD with boosted accuracy"
+
+you will first do a websearch to find relevant references,
+than consider what code to use for the inner SVD - we can start with off-the-shelf SVD code 
+consider upgrading the non-randomized inner SVD part with say twisted factorization / "a Fernando solution to the iterated method for eigen search"
+(i.e. high relative accuracy)
+try to point at what can be done/was done to improve numerical accuracy
+
+for experiment, you can consider comparing f32, f64 and 2xf64 [quad] executions. Kahan summation etc. 
+
+PLAN frist then iterate
+priority 1: correcteness
+priority 2: have some code that works
+priority 3: improve numerical accuracy
+
+CI and commit often, do not try to push
+CI in a ci.sh script, NOT in github infra
+
+save status/todos to repo
