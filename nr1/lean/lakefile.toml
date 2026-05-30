@@ -1,6 +1,6 @@
 name = "LUDecomp"
 version = "0.1.0"
-defaultTargets = ["LUDecomp", "JL"]
+defaultTargets = ["LUDecomp"]
 
 [[require]]
 name = "mathlib"
@@ -21,10 +21,6 @@ globs = ["Fuzz"]
 [[lean_lib]]
 name = "Analysis"
 globs = ["Analysis"]
-
-[[lean_lib]]
-name = "JL"
-globs = ["JL.+"]
 
 [[lean_exe]]
 name = "test"
