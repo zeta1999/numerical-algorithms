@@ -93,10 +93,17 @@ randomized-svd/
 - [ ] Compare with standard SVD on ill-conditioned matrices
 
 ### Phase 5: Advanced SVD 📝
-- [ ] Research: PerSVD (Feng, Yu, Xie) — pass-efficient with shifted power iteration
+- [x] Research: PerSVD (Feng, Yu, Xie) — pass-efficient with shifted power iteration
+      - Paper: "Pass-efficient randomized SVD with boosted accuracy", ECML PKDD 2022
+      - Code: https://github.com/THU-numbda/PerSVD
+      - Key idea: shifted power iteration with adaptive shift alpha = (alpha + sigma_min)/2
+      - Uses svd(A^T*A*Q - alpha*Q) instead of qr(A^T*A*Q)
+      - Achieves 3-4 orders of magnitude error reduction
+      - TODO: Full implementation requires correct economy SVD decomposition
 - [ ] Research: twisted factorization / Fernando's method
 - [ ] Implement high-accuracy bidiagonal SVD kernel
 - [ ] Replace inner SVD with high-accuracy variant
+- [ ] Implement full PerSVD with shifted power iteration (currently wraps randomized_svd)
 
 ### Phase 6: Polish 📝
 - [ ] f32 API variant

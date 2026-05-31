@@ -7,3 +7,4 @@ pub mod svd;
 pub mod eigen;
 
 pub use svd::{randomized_svd, low_rank_approx, svd_errors, RandSVDResult};
+pub use svd::{per_svd, PerSVDParams, PerSVDShift};
