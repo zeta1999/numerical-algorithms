@@ -22,10 +22,21 @@ pub fn sym_eig(a: &Array2<f64>) -> (Vec<f64>, Array2<f64>) {
     // Jacobi iterations
     jacobi(&mut t, &mut v, n);
 
-    // Extract eigenvalues and sort descending
-    let eigenvalues: Vec<f64> = (0..n).map(|i| t[(i, i)]).collect();
-    let mut indexed: Vec<(f64, usize)> = eigenvalues.iter().enumerate().map(|(i, &e)| (e, i)).collect();
-    indexed.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(std::cmp::Ordering::Equal));
+    // Extract eigenvalues and sort descending.
+    // Guard against NaN/Inf from numerical instability (rank-deficient matrices).
+    let eigenvalues: Vec<f64> = (0..n).map(|i| {
+        let ev = t[(i, i)];
+        if ev.is_nan() || ev.is_infinite() { 0.0 } else { ev }
+    }).collect();
+    let mut indexed: Vec<(f64, usize)> = eigenvalues.iter()
+        .enumerate()
+        .map(|(i, &e)| (e, i))
+        .collect();
+    indexed.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(std::cmp::Ordering::Equal)
+    });
 
     let mut sorted_v = Array2::<f64>::zeros((n, n));
     for (rank, &(_, orig_idx)) in indexed.iter().enumerate() {

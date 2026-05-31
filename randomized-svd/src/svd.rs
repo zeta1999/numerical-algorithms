@@ -62,68 +62,50 @@ pub fn randomized_svd(a: &Array2<f64>, k: usize, ost: usize, power_iters: usize)
     RandSVDResult { q, u, s, vt }
 }
 
-/// SVD of a matrix via eigen-decomposition.
-/// Uses A^T A when m > n (economy SVD via right singular vectors),
-/// or A A^T when m <= n (via left singular vectors).
+/// SVD of a matrix via eigen-decomposition of A^T A.
+///
+/// Returns (U, S, V^T) for economy SVD where:
+/// - U is m×k (left singular vectors), k = min(rank, p)
+/// - S is a Vec of k singular values in descending order
+/// - V^T is k×n (right singular vectors transposed)
+///
+/// Invariant: u.ncols() == s.len() == vt.nrows(), and vt.ncols() == a.ncols().
 fn svd_from_eig(a: &Array2<f64>) -> (Array2<f64>, Vec<f64>, Array2<f64>) {
     let (m, n) = a.dim();
+    let p = m.min(n); // max possible rank
 
-    if m >= n {
-        // Use A^T A (n×n) — economy SVD via right singular vectors
-        // A = U * S * V^T where U is m×n, S is n×n, V is n×n
-        let ata = a.t().dot(a); // n×n
-        let (eigenvalues, v) = sym_eig(&ata); // eigenvalues in descending order
+    // A^T A is n×n; its eigenvectors are the right singular vectors of A.
+    let ata = a.t().dot(a); // n×n
+    let (eigenvalues, v) = sym_eig(&ata);
 
-        // Singular values
-        let s: Vec<f64> = eigenvalues.iter()
-            .filter(|&&e| e > 1e-16)
-            .map(|&e| e.sqrt())
-            .collect();
+    // Filter and take at most p eigenvalues
+    let filtered: Vec<f64> = eigenvalues.iter()
+        .filter(|&&e| e > 1e-16)
+        .copied()
+        .take(p)
+        .collect();
 
-        // U = A * V * S^{-1}
-        let k = s.len();
-        let mut u = Array2::<f64>::zeros((m, k));
-        for j in 0..k {
-            for i in 0..m {
-                let val: f64 = (0..n).map(|r| a[(i, r)] * v[(r, j)]).sum::<f64>();
-                u[(i, j)] = if s[j] > 1e-16 { val / s[j] } else { 0.0 };
-            }
+    // Singular values = sqrt(eigenvalues)
+    let s: Vec<f64> = filtered.iter()
+        .map(|&e| e.sqrt())
+        .collect();
+    let k = s.len();
+
+    // Left singular vectors: U = A * V_k * S_k^{-1}
+    // V_k columns = first k eigenvectors = right singular vectors
+    let mut u = Array2::<f64>::zeros((m, k));
+    for j in 0..k {
+        for i in 0..m {
+            let val: f64 = (0..n).map(|r| a[(i, r)] * v[(r, j)]).sum::<f64>();
+            u[(i, j)] = if s[j] > 1e-16 { val / s[j] } else { 0.0 };
         }
-
-        // V^T as matrix (n × n)
-        let vt = v.slice(ndarray::s![.., ..n]).to_owned();
-
-        (u, s, vt)
-    } else {
-        // Use A A^T (m×m) — left singular vectors via eigen-decomposition
-        let ata = a.dot(&a.t()); // m×m
-        let (eigenvalues, v) = sym_eig(&ata); // eigenvalues in descending order
-
-        let s: Vec<f64> = eigenvalues.iter()
-            .filter(|&&e| e > 1e-16)
-            .map(|&e| e.sqrt())
-            .collect();
-
-        let p_cols = m;
-        let mut u = Array2::<f64>::zeros((m, p_cols));
-        for j in 0..p_cols {
-            for i in 0..m {
-                u[(i, j)] = v[(i, j)];
-            }
-        }
-
-        // V^T = S^{-1} U^T A
-        let k = s.len();
-        let mut vt = Array2::<f64>::zeros((p_cols, n));
-        for j in 0..k {
-            for i in 0..n {
-                let val: f64 = (0..m).map(|l| u[(l, j)] * a[(l, i)]).sum::<f64>() / s[j];
-                vt[(j, i)] = val;
-            }
-        }
-
-        (u, s, vt)
     }
+
+    // V^T: k×n matrix whose rows are the first k right singular vectors.
+    // v is n×n; slice first k columns (n×k), then transpose → k×n.
+    let vt = v.slice(ndarray::s![.., ..k]).to_owned(); // n×k
+    let vt = vt.reversed_axes(); // k×n
+    (u, s, vt)
 }
 
 /// Low-rank approximation: Â = U * diag(S) * V^T.
@@ -168,6 +150,7 @@ pub fn svd_errors(a: &Array2<f64>, result: &RandSVDResult, k: usize) -> (f64, f6
 // better accuracy with fewer data passes (3-4 vs 5+ for standard R-SVD).
 
 /// Parameters for PerSVD algorithm.
+#[derive(Clone)]
 pub struct PerSVDParams {
     /// Oversampling parameter.
     pub ost: usize,
@@ -178,7 +161,7 @@ pub struct PerSVDParams {
 }
 
 /// Type of shift parameter update for PerSVD.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum PerSVDShift {
     Once,
     Adaptive,
@@ -196,38 +179,115 @@ impl Default for PerSVDParams {
 /// accuracy." ECML PKDD 2022.
 /// Code: https://github.com/THU-numbda/PerSVD
 ///
-/// Current implementation: wraps the standard randomized SVD.
-/// The full PerSVD algorithm with shifted power iteration and dynamic
-/// shift parameter requires careful numerical implementation.
-/// TODO: Implement the complete PerSVD algorithm with:
-/// - Shifted power iteration: Q = svd(A^T*A*Q - alpha*Q)
-/// - Adaptive shift: alpha = (alpha + sigma_min) / 2
-/// - Proper economy SVD decomposition
+/// The key contribution of PerSVD is the **shifted power iteration** which
+/// amplifies dominant singular vectors by applying (A^T A - alpha I) instead
+/// of just A^T A. This reduces the effective condition number and achieves
+/// better accuracy with fewer data passes.
+///
+/// Implementation:
+/// 1. Right-space basis Q via QR(Omega)
+/// 2. Shifted power iterations to amplify dominant subspace
+/// 3. Standard randomized SVD final step:
+///    a. Y = A * Q, Q_y = QR(Y)  — orthonormal left SV estimate
+///    b. B = Q_y^T * A             — small l×n projected matrix
+///    c. SVD(B) = U_b * S_b * V_b^T
+///    d. U = Q_y * U_b
 pub fn per_svd(a: &Array2<f64>, params: PerSVDParams) -> RandSVDResult {
-    // Use standard randomized SVD as baseline
-    // Full PerSVD with shifted power iteration to be implemented
-    randomized_svd(a, params.ost.min(a.nrows().min(a.ncols()) - params.ost),
-        params.ost, params.power_iters)
+    let (m, n) = a.dim();
+    let l = (params.ost + params.power_iters).min(m.min(n));
+
+    if l == 0 {
+        return per_svd(a, PerSVDParams { ost: 1, ..params });
+    }
+
+    // Step 1: Random probe Omega (n × l)
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let normal = Normal::new(0.0, 1.0).unwrap();
+    let omega: Array2<f64> = Array2::from_shape_vec((n, l),
+        normal.sample_iter(&mut rng).take(n * l).collect()).unwrap();
+
+    // Step 2: Initial Q = qr(Omega, 0) — thin QR of n×l → Q is n×l
+    let mut q = qr_q(&omega, l); // n × l
+
+    let mut alpha: f64 = 0.0;
+
+    // Step 3: Shifted power iterations
+    for _ in 0..params.power_iters {
+        // Y = A * Q (m × l)
+        let y = a.dot(&q);
+
+        // W = A^T * Y (n × l) = A^T * A * Q
+        let wt = a.t().dot(&y);
+
+        // Shifted matrix: M = W - alpha * Q (n × l)
+        let shifted: Array2<f64> = (&wt - &q * alpha).to_owned();
+
+        // Q = qr(M, 0) — orthonormal basis of M, preserves n × l shape
+        q = qr_q(&shifted, l); // n × l
+
+        // Update alpha — adaptive shift
+        if params.shift_type == PerSVDShift::Adaptive {
+            let m_norm: f64 = shifted.iter().map(|&x| x * x).sum::<f64>().sqrt();
+            if m_norm > 1e-16 && alpha < m_norm {
+                alpha = (alpha + m_norm) / 2.0;
+            }
+        }
+    }
+
+    // Step 4: Compute Y = A * Q (m × l) — left SV estimate
+    let y = a.dot(&q); // m × l
+
+    // QR of Y: Y = Q_y * R → Q_y is m×l orthonormal basis
+    let qy = qr_q(&y, l); // m × l
+
+    // Step 5: Project A onto Q_y: B = Q_y^T * A (l × n)
+    let b = qy.t().dot(a); // l × n
+
+    // Step 6: SVD of small matrix B (l × n): B = U_b * S_b * V_b^T
+    let (u_b, s_b, v_b_t) = svd_from_eig(&b); // U_B: l×k, S: k, V_B^T: k×n
+    let k = s_b.len();
+
+    // U = Q_y * U_B (m × l * l × k = m × k)
+    // Re-orthogonalize via QR to ensure clean orthonormal U (u_b may have
+    // non-orthogonal columns from near-zero SVs).
+    let u_temp = qy.dot(&u_b); // m × k
+    let u_final = qr_q(&u_temp, k); // re-orthogonalize
+
+    RandSVDResult {
+        q: Array2::<f64>::zeros((m, l)),
+        u: u_final,
+        s: s_b,
+        vt: v_b_t,
+    }
 }
 
-/// (Reserved for future PerSVD implementation)
 /// Economy SVD via eigendecomposition of A^T A.
-/// Returns (U, S, V) where U is m×min(m,k) (left SVs), S is Vec (singular values),
-/// and V is min(m,k)×min(m,k) (right SVs as columns).
+///
+/// For an m × k_in matrix, returns (U, S, V^T) where:
+/// - U is m × k (left singular vectors), k = number of non-zero SVs
+/// - S is Vec of k singular values (descending)
+/// - V^T is k × k_in (right singular vectors transposed)
+///
+/// Returns the same shape invariant as `svd_from_eig`:
+/// u.ncols() == s.len() == vt.nrows().
 #[allow(dead_code)]
 fn svd_economy(a: &Array2<f64>) -> (Array2<f64>, Vec<f64>, Array2<f64>) {
     let (m, k_in) = a.dim();
     let p = m.min(k_in);
 
-    let ata = a.t().dot(a);
+    // A^T A is k_in × k_in; its eigenvectors = right singular vectors
+    let ata = a.t().dot(a); // k_in × k_in
     let (eigenvalues, v) = sym_eig(&ata);
 
+    // Singular values = sqrt(eigenvalues)
     let s: Vec<f64> = eigenvalues.iter()
         .take(p)
-        .map(|&e| e.max(0.0).sqrt())
+        .filter(|&&e| e > 1e-16)
+        .map(|&e| e.sqrt())
         .collect();
-
     let k = s.len();
+
+    // U = A * V_k * S_k^{-1}
     let mut u = Array2::<f64>::zeros((m, k));
     for j in 0..k {
         for i in 0..m {
@@ -236,6 +296,8 @@ fn svd_economy(a: &Array2<f64>) -> (Array2<f64>, Vec<f64>, Array2<f64>) {
         }
     }
 
-    let vt = v.slice(ndarray::s![.., ..p]).to_owned();
+    // V^T: k × k_in (rows = first k right singular vectors)
+    let vt = v.slice(ndarray::s![.., ..k]).to_owned(); // k_in × k
+    let vt = vt.reversed_axes(); // k × k_in
     (u, s, vt)
 }
